@@ -2,12 +2,13 @@ package com.spoon.backgroundfileupload;
 
 import android.app.Activity;
 import android.app.Notification;
-import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
 import android.net.NetworkInfo;
 import android.os.Binder;
 import android.os.Build;
@@ -25,6 +26,7 @@ import com.sromku.simple.storage.helpers.OrderType;
 import net.gotev.uploadservice.UploadService;
 import net.gotev.uploadservice.UploadServiceConfig;
 import net.gotev.uploadservice.data.UploadInfo;
+import net.gotev.uploadservice.exceptions.UploadError;
 import net.gotev.uploadservice.exceptions.UserCancelledUploadException;
 import net.gotev.uploadservice.network.ServerResponse;
 import net.gotev.uploadservice.observer.request.GlobalRequestObserver;
@@ -52,7 +54,7 @@ import io.reactivex.disposables.Disposable;
 import io.reactivex.schedulers.Schedulers;
 
 public class ManagerService extends Service {
-
+    private static final String defaultChannelId = "com.spoon.backgroundfileupload.channel";
     private final IBinder mBinder = new LocalBinder();
     private GlobalRequestObserver requestObserver;
     private Long lastProgressTimestamp = 0L;
@@ -65,7 +67,6 @@ public class ManagerService extends Service {
     private String notificationContent = "Background upload service running";
     private NotificationManager notificationManager;
 
-    public static final String CHANNEL_ID = "com.spoon.backgroundfileupload.channel";
     private static final int NOTIFICATION_ID = 1234;
 
     private RequestObserverDelegate broadcastReceiver = new RequestObserverDelegate() {
@@ -88,14 +89,29 @@ public class ManagerService extends Service {
             if (!isNetworkAvailable) {
                 return;
             }
-
+            Log.w("CordovaBackgroundUpload", "Upload failed", exception);
             String errorMsg = exception != null ? exception.getMessage() : "unknown exception";
-            JSONObject data = new JSONObject(new HashMap() {{
-                put("id", uploadInfo.getUploadId());
-                put("state", "FAILED");
-                put("error", "upload failed: " + errorMsg);
-                put("errorCode", exception instanceof UserCancelledUploadException ? -999 : 0);
-            }});
+
+            JSONObject data;
+            if (exception instanceof UploadError) {
+                Log.i("CordovaBackgroundUpload", "Status: " + ((UploadError) exception).getServerResponse().getCode() + "\nBody: " + ((UploadError) exception).getServerResponse().getBodyString());
+
+                data = new JSONObject(new HashMap() {{
+                    put("id", uploadInfo.getUploadId());
+                    put("state", "FAILED");
+                    put("error", "upload failed: " + errorMsg);
+                    put("errorCode", 0);
+                    put("statusCode", ((UploadError) exception).getServerResponse().getCode());
+                    put("serverResponse", ((UploadError) exception).getServerResponse().getBodyString());
+                }});
+            } else {
+                data = new JSONObject(new HashMap() {{
+                    put("id", uploadInfo.getUploadId());
+                    put("state", "FAILED");
+                    put("error", "upload failed: " + errorMsg);
+                    put("errorCode", exception instanceof UserCancelledUploadException ? -999 : 0);
+                }});
+            }
 
             deletePendingUploadAndSendEvent(data);
         }
@@ -172,7 +188,7 @@ public class ManagerService extends Service {
     }
 
     private void updateNotificationText(String content) {
-        Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
+        Notification notification = new NotificationCompat.Builder(this, getChannelId())
                 .setContentTitle(this.notificationTitle)
                 .setContentText(content)
                 .setSmallIcon(android.R.drawable.ic_menu_upload)
@@ -227,18 +243,12 @@ public class ManagerService extends Service {
 
     public Notification createNotification(PendingIntent pendingIntent) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(
-                    CHANNEL_ID,
-                    "upload channel",
-                    NotificationManager.IMPORTANCE_LOW
-            );
             this.notificationManager = getSystemService(NotificationManager.class);
-            this.notificationManager.createNotificationChannel(channel);
         } else {
             this.notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         }
 
-        Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
+        Notification notification = new NotificationCompat.Builder(this, getChannelId())
                 .setSmallIcon(android.R.drawable.ic_menu_upload)
                 .setContentTitle(this.notificationTitle)
                 .setContentText(this.notificationContent)
@@ -250,12 +260,6 @@ public class ManagerService extends Service {
     }
 
     public void initUploadService(String options) {
-        UploadServiceConfig.initialize(
-                getApplication(),
-                CHANNEL_ID,
-                false
-        );
-
         this.requestObserver = new GlobalRequestObserver(this.getApplication(), broadcastReceiver);
         this.requestObserver.register();
 
@@ -510,5 +514,17 @@ public class ManagerService extends Service {
         super.onDestroy();
         this.networkObservable.dispose();
         this.networkObservable = null;
+    }
+
+    private String getChannelId() {
+        try {
+            ApplicationInfo app = getPackageManager().getApplicationInfo(getPackageName(), PackageManager.GET_META_DATA);
+
+            return app.metaData.getString("CHANNEL_ID", defaultChannelId);
+        } catch (PackageManager.NameNotFoundException e) {
+            e.printStackTrace();
+        }
+
+        return defaultChannelId;
     }
 }
