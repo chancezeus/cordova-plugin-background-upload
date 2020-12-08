@@ -15,6 +15,8 @@
    <dependency id="cordova-plugin-androidx-adapter" version="1.1.0"/>
    <dependency id="cordova-plugin-file" version="6.0.2"/>
     <platform name="android">
+        <preference name="CHANNEL_ID" default="com.spoon.backgroundfileupload.channel" />
+        <preference name="CHANNEL_NAME" default="upload channel" />
         <framework src="net.gotev:uploadservice:4.0.0" />
         <framework src="net.gotev:uploadservice-okhttp:4.0.0" />
         <framework src="com.sromku:simple-storage:1.2.0" />
@@ -46,7 +48,13 @@
             <meta-data android:name="VERSION" android:value="1" />
             <meta-data android:name="QUERY_LOG" android:value="false" />
             <meta-data android:name="DOMAIN_PACKAGE_NAME" android:value="com.spoon.backgroundfileupload" />
+            <meta-data android:name="CHANNEL_ID" android:value="$CHANNEL_ID" />
+            <meta-data android:name="CHANNEL_NAME" android:value="$CHANNEL_NAME" />
         </config-file>
+        <edit-config file="AndroidManifest.xml" mode="merge" target="/*/application">
+            <application android:name="com.spoon.backgroundfileupload.Application" />
+        </edit-config>
+        <source-file src="src/android/Application.java" target-dir="src/com/spoon/backgroundfileupload" />
         <source-file src="src/android/FileTransferBackground.java" target-dir="src/com/spoon/backgroundfileupload" />
         <source-file src="src/android/PendingUpload.java" target-dir="src/com/spoon/backgroundfileupload" />
         <source-file src="src/android/UploadEvent.java" target-dir="src/com/spoon/backgroundfileupload" />
